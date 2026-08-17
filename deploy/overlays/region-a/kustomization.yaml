@@ -1,0 +1,9 @@
+resources: [../../base]
+namespace: creator-store
+labels: [{ pairs: { topology.creator-store/region: region-a } }]
+patches:
+  - target: { kind: Ingress, name: creator-store-web }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: creator.region-a.example.com

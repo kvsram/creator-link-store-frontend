@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react'; import {createRoot} from 'react-dom/client'; import './style.css';
-const API='http://localhost:8080';
+// Development uses Vite's proxy; the production NGINX image proxies /api to the regional API Service.
+const API=import.meta.env.VITE_API_ORIGIN || '';
 function App(){const [handle,setHandle]=useState(location.pathname.slice(1)||'alex'),[page,setPage]=useState(),[form,setForm]=useState({handle:'',displayName:'',email:'',password:''}),[message,setMessage]=useState('');
   const load=()=>fetch(`${API}/api/public/${handle}`).then(r=>r.ok?r.json():Promise.reject()).then(setPage).catch(()=>setPage(null)); useEffect(load,[handle]);
   const signup=async e=>{e.preventDefault();const r=await fetch(`${API}/api/auth/register`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const body=await r.json();if(r.ok){setMessage(`Created! Your public page is /${body.handle}`);setHandle(body.handle);history.pushState({},'',`/${body.handle}`)}else setMessage(body.error)};
