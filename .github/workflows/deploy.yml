@@ -10,7 +10,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.stage }}
-    concurrency: { group: frontend-${{ inputs.stage }}-${{ inputs.region }}, cancel-in-progress: false }
+    concurrency:
+      group: frontend-${{ inputs.stage }}-${{ inputs.region }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - run: echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > $HOME/.kube/config
