@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import './style.css';
 import './integrations.css';
+import {money} from './format.js';
 
 const API=import.meta.env.VITE_API_ORIGIN||'';
 const CREATOR_ID=1;
@@ -10,7 +11,6 @@ const nav=[
   ['analytics','↗','Analytics'],['customers','♙','Customers'],['community','◎','Community'],
   ['more','•••','More'],['settings','⚙','Settings']
 ];
-const money=(n,currency='INR')=>new Intl.NumberFormat('en-IN',{style:'currency',currency,maximumFractionDigits:2}).format((Number(n)||0)/100);
 const route=()=>location.pathname.startsWith('/dashboard')?(location.pathname.split('/')[2]||'home'):null;
 
 async function request(path,options){

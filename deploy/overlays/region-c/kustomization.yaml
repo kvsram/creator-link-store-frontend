@@ -7,3 +7,6 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: creator.region-c.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: creator.region-c.example.com
