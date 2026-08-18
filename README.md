@@ -1,13 +1,15 @@
 # Creator Link Store Frontend
 
-React + Vite client for the Creator Link Store MVP. It expects the API at `http://localhost:8080` and runs at `http://localhost:5173`.
+React + Vite client for the Creator Store admin and public storefront. It expects the API at `http://localhost:8080` during Vite development and runs at `http://localhost:5173`.
 
 ```bash
 npm install
 npm run dev
 ```
 
-The public page is `/alex`; visit an unknown handle to display the creator registration form.
+The admin starts at `/dashboard/` and implements Home, My Store, Success, Income, Analytics, Customers, Community, More, and Settings. The demo public page is `/alex`; an unknown handle displays registration. The UI is an original design informed by the supplied observable feature reference; it does not contain Stan source or branding.
+
+For the complete three-container workflow, clone the infrastructure repository beside this repository as `infrastructure` and follow its README.
 
 ## Regional Kubernetes deployment
 
