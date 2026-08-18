@@ -9,6 +9,8 @@ npm run dev
 
 The admin starts at `/dashboard/` and implements Home, My Store, Success, Income, Analytics, Customers, Community, More, and Settings. The demo public page is `/alex`; an unknown handle displays registration. The UI is an original design informed by the supplied observable feature reference; it does not contain Stan source or branding.
 
+Money is displayed as INR using Indian formatting and prices are sent as paise (`priceSubunits`). Real payment surfaces are explicitly labeled. A public purchase requests an idempotent server-side checkout; disabled/misconfigured providers show that no charge was attempted. Razorpay Checkout is loaded only after the API returns a real order, and Stripe is an optional redirect strategy.
+
 For the complete three-container workflow, clone the infrastructure repository beside this repository as `infrastructure` and follow its README.
 
 ## Regional Kubernetes deployment
