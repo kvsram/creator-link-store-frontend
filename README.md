@@ -10,6 +10,8 @@ npm run dev
 
 The admin starts at `/dashboard/` and implements Home, My Store, Success, Income, Analytics, Customers, Community, More, and Settings. The demo public page is `/alex`; an unknown handle displays registration. The UI is an original design informed by the supplied observable feature reference; it does not contain Stan source or branding.
 
+**My Store** separates storefront authoring into three focused views. **Store** manages offers, **Landing Pages** edits the public headline and visible sections, and **Edit Design** controls theme, accent color, background, button shape, and typography. The add-product dialog uses visual cards for all eight offer types and shows a live phone preview while the creator changes category, title, or price. Landing and design settings are persisted through the backend rather than existing only in browser state.
+
 Money is displayed as INR using Indian formatting and prices are sent as paise (`priceSubunits`). Real payment surfaces are explicitly labeled. A public purchase requests an idempotent server-side checkout; disabled/misconfigured providers show that no charge was attempted. Razorpay Checkout is loaded only after the API returns a real order, and Stripe is an optional redirect strategy.
 
 For the complete three-container workflow, start with the [infrastructure repository](https://github.com/kvsram/creator-link-store-infrastructure). Its bootstrap script clones all missing siblings, validates the laptop, starts the three containers, and runs the supported-contract smoke test. Its feature-parity matrix is the source of truth for what is complete versus a UI/API foundation.
