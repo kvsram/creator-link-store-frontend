@@ -8,7 +8,7 @@ npm test
 npm run dev
 ```
 
-The admin starts at `/dashboard/` and implements Home, My Store, Success, Income, Analytics, Customers, Community, More, and Settings. The demo public page is `/alex`; an unknown handle displays registration. The UI is an original design informed by the supplied observable feature reference; it does not contain Stan source or branding.
+The admin starts at `/dashboard/` and implements Home, My Store, Success, Income, Analytics, Customers, Community, More, and Settings. The demo public page is `/alex`; an unknown Store URL displays registration. The UI is an original design informed by the supplied observable feature reference; it does not contain Stan source or branding.
 
 The authenticated dashboard uses an original cinematic dark interface: a creator-focused Home spotlight, compact navigation, high-contrast content cards, restrained hover motion, accessible focus states, and a mobile bottom navigation. The theme is scoped to the admin shell; creators' phone previews and public storefront themes remain independently customizable.
 
