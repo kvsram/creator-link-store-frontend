@@ -12,6 +12,16 @@ export function resolveRoute(pathname) {
   }
 
   const segments = normalized.slice(1).split('/');
+  if (segments.length === 3 && segments[1] === 'products') {
+    try {
+      const handle = decodeURIComponent(segments[0]).toLowerCase();
+      const productId = Number(segments[2]);
+      if (!handle || !Number.isSafeInteger(productId) || productId <= 0) return {kind: 'not-found'};
+      return {kind: 'product-detail', handle, productId};
+    } catch {
+      return {kind: 'not-found'};
+    }
+  }
   if (segments.length !== 1 || !segments[0]) return {kind: 'not-found'};
   try {
     return {kind: 'store', handle: decodeURIComponent(segments[0]).toLowerCase()};
