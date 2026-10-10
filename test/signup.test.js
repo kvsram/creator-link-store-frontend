@@ -33,6 +33,9 @@ test('checks only the public handle before registration', () => {
 test('explains a recoverable login destination for accounts created by older clients', () => {
   assert.match(loginNoticeFromSearch('?account=created'), /account was created/i);
   assert.match(loginNoticeFromSearch('?account=created'), /sign in/i);
+  assert.match(loginNoticeFromSearch('?verified=1'), /verified/i);
+  assert.match(loginNoticeFromSearch('?reset=1'), /password changed/i);
+  assert.match(loginNoticeFromSearch('?signedOut=1'), /signed out/i);
   assert.equal(loginNoticeFromSearch('?account=other'), '');
 });
 
@@ -41,4 +44,6 @@ test('auth failures use purpose-built public copy instead of server details', ()
   assert.match(authFailureMessage('registration', 409), /could not create/i);
   assert.match(authFailureMessage('login', 401), /sign-in failed/i);
   assert.match(authFailureMessage('login', 429), /too many attempts/i);
+  assert.match(authFailureMessage('login', 403, 'EMAIL_NOT_VERIFIED'), /verify your email/i);
+  assert.match(authFailureMessage('reset', 410), /expired/i);
 });

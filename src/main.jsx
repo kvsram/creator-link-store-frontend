@@ -5,12 +5,13 @@ import './integrations.css';
 import {money} from './format.js';
 import {resolveRoute} from './routes.js';
 import {MarketingHome,PublicNotFound} from './MarketingHome.jsx';
-import {Login,Signup} from './AuthPages.jsx';
+import {ForgotPassword,Login,ResetPassword,Signup,VerifyEmail} from './AuthPages.jsx';
 import {publicFailureMessage} from './publicMessages.js';
 import {postPublicView,publicViewDecision,publicViewPayload} from './publicEvents.js';
 import {leadSubmissionIdentity} from './leadSubmission.js';
 import {newIdempotencyKey,stableRequestIdentity} from './requestId.js';
 import {profileForm,profileSaveFailure,profileSavePayload,savedProfile,validateProfileForm} from './profileSettings.js';
+import {normalizeSessions,sessionTimestamp} from './identityAuth.js';
 import {
   PRODUCT_TYPE_DEFINITIONS,
   defaultProductConfiguration,
@@ -37,7 +38,7 @@ const currentRoute=()=>resolveRoute(location.pathname);
 
 async function request(path,options){
   const response=await fetch(`${API}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(options?.headers||{})}});
-  if(!response.ok){const payload=await response.json().catch(()=>({}));const error=new Error(payload.error||payload.detail||payload.message||`Request failed: ${response.status}`);error.status=response.status;throw error}
+  if(!response.ok){const payload=await response.json().catch(()=>({}));const error=new Error(payload.error||payload.detail||payload.message||`Request failed: ${response.status}`);error.status=response.status;error.code=payload.code;error.payload=payload;throw error}
   return response.status===204?null:response.json();
 }
 
@@ -53,30 +54,35 @@ const productConfiguration=product=>normalizeProductConfiguration(product?.type,
 function App(){
   const [page,setPage]=useState(currentRoute());
   const [account,setAccount]=useState(null);
+  const [logoutError,setLogoutError]=useState('');
   const section=page.kind==='dashboard'?page.section:null;
   useEffect(()=>{const pop=()=>setPage(currentRoute());addEventListener('popstate',pop);return()=>removeEventListener('popstate',pop)},[]);
   useEffect(()=>{if(section)request('/api/auth/me').then(setAccount).catch(()=>setAccount(false))},[section]);
   if(page.kind==='marketing')return <MarketingHome/>;
   if(page.kind==='signup')return <Signup request={request}/>;
   if(page.kind==='login')return <Login request={request} onSuccess={()=>location.assign('/dashboard/')}/>;
+  if(page.kind==='verify-email')return <VerifyEmail request={request}/>;
+  if(page.kind==='forgot-password')return <ForgotPassword request={request}/>;
+  if(page.kind==='reset-password')return <ResetPassword request={request}/>;
   if(page.kind==='store')return <PublicStore handle={page.handle}/>;
   if(page.kind==='not-found')return <PublicNotFound/>;
   if(account===null)return <div className="public-loading">Checking your session…</div>;
   if(account===false)return <Login request={request} onSuccess={setAccount}/>;
   const go=id=>{history.pushState({},'',`/dashboard/${id==='home'?'':id}`);setPage(currentRoute())};
+  const logout=async()=>{setLogoutError('');try{try{await request('/api/v1/auth/sessions/current',{method:'DELETE'})}catch(failure){if(failure.status!==404&&failure.status!==501)throw failure;await request('/api/auth/logout',{method:'POST'})}location.assign('/login?signedOut=1')}catch{setLogoutError('We could not sign you out. Check your connection and try again.')}};
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" onClick={()=>go('home')}><span>CS</span><b>Creator Store</b></a>
       <nav>{nav.map(([id,icon,label])=><button key={id} className={section===id?'active':''} onClick={()=>go(id)}><i>{icon}</i>{label}{id==='success'&&<em>New</em>}</button>)}</nav>
       <div className="account"><div className="avatar small">{account.displayName?.[0]||'C'}</div><span><b>{account.displayName}</b><small>@{account.handle}</small></span></div>
     </aside>
-    <main className="workspace"><Topbar section={section} account={account}/><Section key={section} id={section} account={account} onAccountChange={updates=>setAccount(current=>({...current,...updates}))}/></main>
+    <main className="workspace"><Topbar section={section} account={account} logout={logout} logoutError={logoutError}/><Section key={section} id={section} account={account} onAccountChange={updates=>setAccount(current=>({...current,...updates}))} onLogout={logout}/></main>
   </div>
 }
 
-function Topbar({section,account}){return <header className="topbar"><div><span className="eyebrow">Workspace</span><b>{nav.find(x=>x[0]===section)?.[2]||section}</b></div><div className="top-actions"><a href={`/${account.handle}`} target="_blank">View store ↗</a><button className="icon-button" aria-label="Notifications">♢</button></div></header>}
+function Topbar({section,account,logout,logoutError}){return <header className="topbar"><div><span className="eyebrow">Workspace</span><b>{nav.find(x=>x[0]===section)?.[2]||section}</b></div><div className="top-actions">{logoutError&&<span className="topbar-error" role="alert">{logoutError}</span>}<a href={`/${account.handle}`} target="_blank">View store ↗</a><button className="icon-button" aria-label="Notifications">♢</button><button className="topbar-logout" onClick={logout}>Sign out</button></div></header>}
 
-function Section({id,account,onAccountChange}){
+function Section({id,account,onAccountChange,onLogout}){
   const endpoints={home:'dashboard',store:'store',success:'success',income:'income',analytics:'analytics',customers:'customers',more:'more',settings:'settings'};
   const [data,setData]=useState(null),[error,setError]=useState('');
   const load=()=>{setData(null);setError('');if(!endpoints[id]){setData({});return}request(`/api/v1/${endpoints[id]}`).then(setData).catch(e=>setError(e.message))};
@@ -91,7 +97,7 @@ function Section({id,account,onAccountChange}){
   if(id==='customers')return <Customers data={data} reload={load}/>;
   if(id==='community')return <Community/>;
   if(id==='more')return <More data={data}/>;
-  if(id==='settings')return <Settings data={data} account={account} onAccountChange={onAccountChange}/>;
+  if(id==='settings')return <Settings data={data} account={account} onAccountChange={onAccountChange} onLogout={onLogout}/>;
   return null;
 }
 
@@ -198,7 +204,7 @@ function More(){const cards=[['⇄','Funnels','Connect offers into a guided cust
 
 function AutoDmRules(){const empty={instagramAccountId:'',mediaId:'',keywords:'',matchMode:'any',replyText:'',active:false};const [rules,setRules]=useState([]),[form,setForm]=useState(empty),[message,setMessage]=useState('');const load=()=>request('/api/v1/automations/instagram-comment-rules').then(setRules).catch(e=>setMessage(e.message));useEffect(()=>{load()},[]);const submit=async e=>{e.preventDefault();setMessage('');try{await request('/api/v1/automations/instagram-comment-rules',{method:'POST',body:JSON.stringify({...form,keywords:form.keywords.split(',').map(x=>x.trim()).filter(Boolean)})});setForm(empty);setMessage('Rule saved. It will act only after the Meta app, webhook, token, and worker are configured.');load()}catch(x){setMessage(x.message)}};return <section className="panel settings-form"><div className="real-money-banner">EXTERNAL INSTAGRAM ACTION · One private reply per matching comment; Meta controls eligibility and timing.</div><h2>Comment-to-DM automation</h2><form onSubmit={submit}><label>Instagram professional account ID<input required value={form.instagramAccountId} onChange={e=>setForm({...form,instagramAccountId:e.target.value})}/></label><label>Instagram media ID<input required value={form.mediaId} onChange={e=>setForm({...form,mediaId:e.target.value})}/></label><label>Keywords (comma separated)<input required value={form.keywords} onChange={e=>setForm({...form,keywords:e.target.value})}/></label><label>Match mode<select value={form.matchMode} onChange={e=>setForm({...form,matchMode:e.target.value})}><option value="any">Any keyword</option><option value="all">All keywords</option><option value="exact">Exact comment</option></select></label><label>Private reply<textarea required maxLength="1000" value={form.replyText} onChange={e=>setForm({...form,replyText:e.target.value})}/></label><label><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/> Activate after saving</label><button className="primary">Save AutoDM rule</button></form>{message&&<p className="muted">{message}</p>}<div className="provider-stack">{rules.map(rule=><div className="connection" key={rule.id}><i>{rule.active?'✓':'○'}</i><div><b>Media {rule.media_id}</b><small>{String(rule.keywords).split('\n').join(', ')} · {rule.match_mode}</small></div><span className={`status ${rule.active?'published':'draft'}`}>{rule.active?'active':'draft'}</span></div>)}</div></section>}
 
-function Settings({data,account,onAccountChange}){const requestedTab=new URLSearchParams(location.search).get('tab');const [tab,setTab]=useState(data.tabs.includes(requestedTab)?requestedTab:'profile'),[payments,setPayments]=useState(null),[instagram,setInstagram]=useState(null);useEffect(()=>{request('/api/v1/payments/config').then(setPayments);request('/api/v1/integrations/instagram/config').then(setInstagram)},[]);const changeTab=next=>{setTab(next);history.replaceState({},'',`/dashboard/settings?tab=${encodeURIComponent(next)}`)};return <><PageHead title="Settings" subtitle="Manage your account, store, payments, and security."/><div className="settings-layout"><nav>{data.tabs.map(x=><button className={tab===x?'active':''} onClick={()=>changeTab(x)} key={x}>{x.replaceAll('-',' ')}</button>)}</nav><section className="panel settings-form"><h2>{tab.replaceAll('-',' ')}</h2>{tab==='profile'?<ProfileSettings profile={data.profile} account={account} onAccountChange={onAccountChange}/>:tab==='billing'?<CreatorBilling requestedPlan={new URLSearchParams(location.search).get('plan')}/>:tab==='payments'?<ProviderSettings payments={payments} payouts={data.store.payouts_enabled}/>:tab==='integrations'?<IntegrationSettings instagram={instagram}/>:<State title={`${tab.replaceAll('-',' ')} settings`} body="The API boundary and navigation are implemented; provider credentials belong in local untracked environment files or AWS Secrets Manager."/>}</section></div></>}
+function Settings({data,account,onAccountChange,onLogout}){const requestedTab=new URLSearchParams(location.search).get('tab');const [tab,setTab]=useState(data.tabs.includes(requestedTab)?requestedTab:'profile'),[payments,setPayments]=useState(null),[instagram,setInstagram]=useState(null);useEffect(()=>{request('/api/v1/payments/config').then(setPayments);request('/api/v1/integrations/instagram/config').then(setInstagram)},[]);const changeTab=next=>{setTab(next);history.replaceState({},'',`/dashboard/settings?tab=${encodeURIComponent(next)}`)};return <><PageHead title="Settings" subtitle="Manage your account, store, payments, and security."/><div className="settings-layout"><nav>{data.tabs.map(x=><button className={tab===x?'active':''} onClick={()=>changeTab(x)} key={x}>{x.replaceAll('-',' ')}</button>)}</nav><section className="panel settings-form"><h2>{tab.replaceAll('-',' ')}</h2>{tab==='profile'?<ProfileSettings profile={data.profile} account={account} onAccountChange={onAccountChange}/>:tab==='security'?<SecuritySettings onLogout={onLogout}/>:tab==='billing'?<CreatorBilling requestedPlan={new URLSearchParams(location.search).get('plan')}/>:tab==='payments'?<ProviderSettings payments={payments} payouts={data.store.payouts_enabled}/>:tab==='integrations'?<IntegrationSettings instagram={instagram}/>:<State title={`${tab.replaceAll('-',' ')} settings`} body="The API boundary and navigation are implemented; provider credentials belong in local untracked environment files or AWS Secrets Manager."/>}</section></div></>}
 
 function ProfileSettings({profile,account,onAccountChange}){
   const initial=profileForm(profile,account);
@@ -208,6 +214,17 @@ function ProfileSettings({profile,account,onAccountChange}){
   const update=(field,value)=>{setForm(current=>({...current,[field]:value}));setError('');setMessage('')};
   const submit=async event=>{event.preventDefault();const validation=validateProfileForm(form);if(validation){setError(validation);setMessage('');return}setSaving(true);setError('');setMessage('');try{const response=await request('/api/v1/settings/profile',{method:'PATCH',body:JSON.stringify(profileSavePayload(form))});const saved=savedProfile(response,form);setForm(saved);setSavedHandle(saved.handle);onAccountChange?.({handle:saved.handle,displayName:saved.displayName,bio:saved.bio,avatarUrl:response.avatar_url??response.avatarUrl??account.avatarUrl});setMessage('Profile saved. Your dashboard and public store now use these details.')}catch(failure){setError(profileSaveFailure(failure.status,failure.message))}finally{setSaving(false)}};
   return <form className="profile-settings" onSubmit={submit} noValidate><label>Display name<input required maxLength="80" autoComplete="name" value={form.displayName} onChange={event=>update('displayName',event.target.value)}/><small>The creator or business name visitors see.</small></label><label>Public store address<div className="prefix-input"><span>{storePrefix}</span><input required maxLength="40" autoCapitalize="none" autoComplete="username" value={form.handle} onChange={event=>update('handle',event.target.value.toLowerCase().replace(/[^a-z0-9_]/g,''))}/></div><small>Use 3–40 lowercase letters, numbers, or underscores.</small></label>{handleChanged&&<div className="profile-url-warning" role="status"><b>Your public link will change.</b><span>The old /{savedHandle} address will stop working after you save. Update your Instagram bio and shared links.</span></div>}<label>Bio<textarea maxLength="280" value={form.bio} onChange={event=>update('bio',event.target.value)}/><small className="profile-character-count">{form.bio.length}/280 characters</small></label><label>Phone (optional)<input inputMode="tel" autoComplete="tel" maxLength="32" value={form.phone} onChange={event=>update('phone',event.target.value)}/><small>Used only for creator account contact details; it is not shown on the public store.</small></label>{error&&<p className="error profile-feedback" role="alert">{error}</p>}{message&&<p className="save-message profile-feedback" role="status">{message}</p>}<div className="profile-save-row"><button className="primary" disabled={saving}>{saving?'Saving profile…':'Save profile'}</button></div></form>
+}
+
+function SecuritySettings({onLogout}){
+  const [sessions,setSessions]=useState(null),[error,setError]=useState(''),[working,setWorking]=useState(''),[unsupported,setUnsupported]=useState(false);
+  const load=()=>{setError('');setUnsupported(false);request('/api/v1/auth/sessions').then(response=>setSessions(normalizeSessions(response))).catch(failure=>{setSessions([]);if(failure.status===404||failure.status===501)setUnsupported(true);else setError('We could not load your signed-in devices.')})};
+  useEffect(load,[]);
+  const revoke=async session=>{if(session.current){onLogout();return}setWorking(session.id);setError('');try{await request(`/api/v1/auth/sessions/${encodeURIComponent(session.id)}`,{method:'DELETE'});setSessions(current=>current.filter(item=>item.id!==session.id))}catch{setError('We could not sign out that device. Try again.')}finally{setWorking('')}};
+  const revokeOthers=async()=>{const others=(sessions||[]).filter(session=>!session.current);if(!others.length)return;setWorking('others');setError('');try{await Promise.all(others.map(session=>request(`/api/v1/auth/sessions/${encodeURIComponent(session.id)}`,{method:'DELETE'})));setSessions(current=>current.filter(session=>session.current))}catch{setError('Some devices may not have been signed out. Refresh and try again.');load()}finally{setWorking('')}};
+  if(sessions===null)return <p className="muted">Loading signed-in devices…</p>;
+  if(unsupported)return <div className="security-empty"><b>Session controls are awaiting the Identity v1 backend.</b><p>Your current session remains protected by the existing httpOnly cookie. Deploy the matching backend before testing device revocation.</p><button className="secondary" onClick={onLogout}>Sign out this device</button></div>;
+  return <div className="security-settings"><div className="security-heading"><div><b>Signed-in devices</b><p>Review browser sessions and remove anything you do not recognize.</p></div><button className="secondary" disabled={working==='others'||!sessions.some(session=>!session.current)} onClick={revokeOthers}>{working==='others'?'Signing out…':'Sign out other devices'}</button></div>{error&&<p className="error profile-feedback" role="alert">{error}</p>}<div className="session-list">{sessions.map(session=><article key={session.id}><span className="session-device" aria-hidden="true">{session.current?'●':'○'}</span><div><b>{session.device}{session.current&&<em>Current</em>}</b><small>{session.location||'Location unavailable'} · Last active {sessionTimestamp(session.lastSeenAt||session.createdAt)}</small><small>Expires {sessionTimestamp(session.expiresAt)}</small></div><button className={session.current?'primary':'secondary'} disabled={working===session.id} onClick={()=>revoke(session)}>{working===session.id?'Signing out…':session.current?'Sign out':'Remove'}</button></article>)}{!sessions.length&&<p className="muted">No active sessions were returned.</p>}</div><div className="security-note"><b>Password recovery</b><p>Password reset links are one-time and expire. A successful reset invalidates every existing session.</p><a href="/forgot-password">Reset password</a></div></div>
 }
 
 function CreatorBilling({requestedPlan}){return <div className="creator-billing"><div className="billing-status"><span>Current plan</span><b>Starter</b><em>Active</em></div>{requestedPlan==='pro'&&<div className="billing-requested">Your Creator Pro choice brought you here. Your account was created on Starter; no premium charge or entitlement was fabricated.</div>}<article><div><span className="premium-chip">Premium</span><h3>Creator Pro</h3><p>Advanced funnels, referrals, email flows, and higher customer and analytics limits.</p></div><strong>₹999 <small>/ month</small></strong><button className="primary" disabled>Hosted checkout not configured</button></article><div className="secure-billing-note"><b>🔒 How activation will work</b><p>The browser opens Razorpay or Stripe hosted checkout. The provider tokenizes the card, sends a signed webhook, and only that verified webhook changes the backend entitlement to Premium. This application never stores card numbers or CVVs.</p></div><p className="muted">₹999 is a proposed test-stage price, not an active charge. Store-customer payments under the Payments tab are a separate system.</p></div>}

@@ -10,6 +10,9 @@ test('keeps product, signup, login, storefront, and dashboard routes separate', 
   assert.deepEqual(resolveRoute('/signup'), {kind: 'signup'});
   assert.deepEqual(resolveRoute('/register/'), {kind: 'signup'});
   assert.deepEqual(resolveRoute('/login'), {kind: 'login'});
+  assert.deepEqual(resolveRoute('/verify-email?token=secret'), {kind: 'verify-email'});
+  assert.deepEqual(resolveRoute('/forgot-password'), {kind: 'forgot-password'});
+  assert.deepEqual(resolveRoute('/reset-password?token=secret'), {kind: 'reset-password'});
   assert.deepEqual(resolveRoute('/dashboard'), {kind: 'dashboard', section: 'home'});
   assert.deepEqual(resolveRoute('/dashboard/analytics'), {kind: 'dashboard', section: 'analytics'});
   assert.deepEqual(resolveRoute('/alex'), {kind: 'store', handle: 'alex'});
