@@ -45,8 +45,8 @@ export function validateSignupDetails(form) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form?.email || '')) {
     return 'Enter a valid email address.';
   }
-  if ((form?.password || '').length < 8) {
-    return 'Use a password with at least 8 characters.';
+  if ((form?.password || '').length < 15) {
+    return 'Use a password with at least 15 characters.';
   }
   return '';
 }

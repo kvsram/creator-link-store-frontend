@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   maskedEmail,
+  locationWithoutAuthTokens,
   needsEmailVerification,
   normalizeSessions,
   pendingVerificationDetails,
   recoveryEmailPayload,
   requestV1WithFallback,
   resetPasswordPayload,
+  scrubAuthTokenFromHistory,
   tokenFromSearch,
   validateNewPassword,
   validateRecoveryEmail,
@@ -34,10 +36,21 @@ test('validates recovery and reset payloads before API calls', () => {
   assert.equal(validateRecoveryEmail('alex@example.com'), '');
   assert.match(validateRecoveryEmail('not-an-email'), /valid email/i);
   assert.deepEqual(recoveryEmailPayload(' ALEX@EXAMPLE.COM '), {email: 'alex@example.com'});
-  assert.match(validateNewPassword('short', 'short'), /at least 8/i);
-  assert.match(validateNewPassword('long-enough', 'different'), /do not match/i);
-  assert.equal(validateNewPassword('long-enough', 'long-enough'), '');
-  assert.deepEqual(resetPasswordPayload(' token ', 'long-enough'), {token: 'token', newPassword: 'long-enough'});
+  assert.match(validateNewPassword('fourteen-chars', 'fourteen-chars'), /at least 15/i);
+  assert.match(validateNewPassword('a-long-password-value', 'different-value-here'), /do not match/i);
+  assert.equal(validateNewPassword('a-long-password-value', 'a-long-password-value'), '');
+  assert.deepEqual(resetPasswordPayload(' token ', 'a-long-password-value'), {token: 'token', newPassword: 'a-long-password-value'});
+});
+
+test('removes auth tokens from browser history while preserving safe URL state', () => {
+  const location = {pathname: '/verify-email', search: '?token=secret&campaign=welcome', hash: '#status'};
+  assert.equal(locationWithoutAuthTokens(location), '/verify-email?campaign=welcome#status');
+  const calls = [];
+  const history = {state: {route: true}, replaceState: (...args) => calls.push(args)};
+  assert.equal(scrubAuthTokenFromHistory(location, history), true);
+  assert.deepEqual(calls, [[{route: true}, '', '/verify-email?campaign=welcome#status']]);
+  assert.equal(scrubAuthTokenFromHistory({pathname: '/verify-email', search: ''}, history), false);
+  assert.equal(calls.length, 1);
 });
 
 test('uses the v1 endpoint and falls back only when the endpoint is unavailable', async () => {
@@ -61,10 +74,12 @@ test('recognizes unverified login failures and normalizes public session ids', (
   assert.equal(needsEmailVerification({status: 401, code: 'EMAIL_NOT_VERIFIED'}), false);
   assert.deepEqual(normalizeSessions({sessions: [{
     publicId: 'ses_public', isCurrent: true, deviceLabel: 'Safari on macOS',
-    lastSeenAt: '2030-01-01T00:00:00Z'
+    lastSeenAt: '2030-01-01T00:00:00Z', idleExpiresAt: '2030-01-02T00:00:00Z',
+    expiresAt: '2030-02-01T00:00:00Z', authMethod: 'email_verification'
   }]}), [{
     id: 'ses_public', current: true, createdAt: null,
-    lastSeenAt: '2030-01-01T00:00:00Z', expiresAt: null,
+    lastSeenAt: '2030-01-01T00:00:00Z', idleExpiresAt: '2030-01-02T00:00:00Z',
+    expiresAt: '2030-02-01T00:00:00Z', authMethod: 'email_verification',
     device: 'Safari on macOS', location: ''
   }]);
 });

@@ -16,12 +16,12 @@ test('only an explicit pro query selects the premium signup journey', () => {
 });
 
 test('validates creator identity fields before calling availability or registration APIs', () => {
-  const valid = {handle: 'alex_creates', displayName: 'Alex Creates', email: 'alex@example.com', password: 'password123'};
+  const valid = {handle: 'alex_creates', displayName: 'Alex Creates', email: 'alex@example.com', password: 'a-long-password-value'};
   assert.equal(validateSignupDetails(valid), '');
   assert.match(validateSignupDetails({...valid, handle: 'a'}), /3–40/);
   assert.match(validateSignupDetails({...valid, displayName: '  '}), /business name/);
   assert.match(validateSignupDetails({...valid, email: 'invalid'}), /valid email/);
-  assert.match(validateSignupDetails({...valid, password: 'short'}), /at least 8/);
+  assert.match(validateSignupDetails({...valid, password: 'fourteen-chars'}), /at least 15/);
 });
 
 test('checks only the public handle before registration', () => {

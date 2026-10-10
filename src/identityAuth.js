@@ -36,6 +36,19 @@ export function tokenFromSearch(search) {
   return '';
 }
 
+export function locationWithoutAuthTokens(locationLike = {}) {
+  const params = new URLSearchParams(locationLike.search || '');
+  TOKEN_KEYS.forEach(key => params.delete(key));
+  const search = params.toString();
+  return `${locationLike.pathname || '/'}${search ? `?${search}` : ''}${locationLike.hash || ''}`;
+}
+
+export function scrubAuthTokenFromHistory(locationLike, historyLike) {
+  if (!tokenFromSearch(locationLike?.search)) return false;
+  historyLike?.replaceState?.(historyLike.state ?? null, '', locationWithoutAuthTokens(locationLike));
+  return true;
+}
+
 export async function requestV1WithFallback(request, v1Path, legacyPath, options) {
   try {
     return await request(v1Path, options);
@@ -57,7 +70,7 @@ export function validateRecoveryEmail(email) {
 }
 
 export function validateNewPassword(password, confirmation) {
-  if (String(password ?? '').length < 8) return 'Use a password with at least 8 characters.';
+  if (String(password ?? '').length < 15) return 'Use a password with at least 15 characters.';
   if (password !== confirmation) return 'The passwords do not match.';
   return '';
 }
@@ -82,7 +95,9 @@ export function normalizeSessions(response) {
     current: row?.current === true || row?.isCurrent === true || row?.is_current === true,
     createdAt: row?.createdAt ?? row?.created_at ?? null,
     lastSeenAt: row?.lastSeenAt ?? row?.last_seen_at ?? null,
+    idleExpiresAt: row?.idleExpiresAt ?? row?.idle_expires_at ?? null,
     expiresAt: row?.expiresAt ?? row?.expires_at ?? null,
+    authMethod: String(row?.authMethod ?? row?.auth_method ?? 'password'),
     device: String(row?.device ?? row?.deviceLabel ?? row?.device_label ?? 'Unknown device'),
     location: String(row?.location ?? row?.locationLabel ?? row?.location_label ?? '')
   })).filter(row => row.id);
