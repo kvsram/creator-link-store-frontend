@@ -1,14 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  consumePostVerificationDestination,
   maskedEmail,
   locationWithoutAuthTokens,
   needsEmailVerification,
   normalizeSessions,
   pendingVerificationDetails,
   recoveryEmailPayload,
+  rememberPostVerificationIntent,
+  requireActiveAuthAccount,
+  requirePendingRegistration,
   resendCooldownSeconds,
-  requestV1WithFallback,
   resetPasswordPayload,
   scrubAuthTokenFromHistory,
   tokenFromSearch,
@@ -35,6 +38,8 @@ test('keeps verification details useful without exposing an email token', () => 
   assert.equal(resendCooldownSeconds({retry_after_seconds: 900}), 300);
   assert.equal(tokenFromSearch('?token=one-time-value'), 'one-time-value');
   assert.equal(tokenFromSearch('?verification_token=compatibility-value'), 'compatibility-value');
+  assert.equal(tokenFromSearch('?token=legacy-query', '#token=fragment-value'), 'fragment-value');
+  assert.equal(tokenFromSearch('', '#?reset_token=fragment-reset'), 'fragment-reset');
   assert.equal(tokenFromSearch('?unrelated=value'), '');
 });
 
@@ -42,37 +47,61 @@ test('validates recovery and reset payloads before API calls', () => {
   assert.equal(validateRecoveryEmail('alex@example.com'), '');
   assert.match(validateRecoveryEmail('not-an-email'), /valid email/i);
   assert.deepEqual(recoveryEmailPayload(' ALEX@EXAMPLE.COM '), {email: 'alex@example.com'});
-  assert.match(validateNewPassword('fourteen-chars', 'fourteen-chars'), /at least 15/i);
+  assert.match(validateNewPassword('eleven-char', 'eleven-char'), /12–128/i);
+  assert.match(validateNewPassword('😀'.repeat(11), '😀'.repeat(11)), /12–128/i);
+  assert.equal(validateNewPassword('😀'.repeat(12), '😀'.repeat(12)), '');
+  assert.match(validateNewPassword('a'.repeat(129), 'a'.repeat(129)), /12–128/i);
+  assert.match(validateNewPassword(' '.repeat(12), ' '.repeat(12)), /12–128/i);
   assert.match(validateNewPassword('a-long-password-value', 'different-value-here'), /do not match/i);
   assert.equal(validateNewPassword('a-long-password-value', 'a-long-password-value'), '');
   assert.deepEqual(resetPasswordPayload(' token ', 'a-long-password-value'), {token: 'token', newPassword: 'a-long-password-value'});
 });
 
 test('removes auth tokens from browser history while preserving safe URL state', () => {
-  const location = {pathname: '/verify-email', search: '?token=secret&campaign=welcome', hash: '#status'};
-  assert.equal(locationWithoutAuthTokens(location), '/verify-email?campaign=welcome#status');
+  const location = {
+    pathname: '/verify-email', search: '?token=legacy-secret&campaign=welcome',
+    hash: '#token=fragment-secret&status=working'
+  };
+  assert.equal(locationWithoutAuthTokens(location), '/verify-email?campaign=welcome#status=working');
   const calls = [];
   const history = {state: {route: true}, replaceState: (...args) => calls.push(args)};
   assert.equal(scrubAuthTokenFromHistory(location, history), true);
-  assert.deepEqual(calls, [[{route: true}, '', '/verify-email?campaign=welcome#status']]);
-  assert.equal(scrubAuthTokenFromHistory({pathname: '/verify-email', search: ''}, history), false);
+  assert.deepEqual(calls, [[{route: true}, '', '/verify-email?campaign=welcome#status=working']]);
+  assert.equal(scrubAuthTokenFromHistory({pathname: '/verify-email', search: '', hash: '#status'}, history), false);
   assert.equal(calls.length, 1);
 });
 
-test('uses the v1 endpoint and falls back only when the endpoint is unavailable', async () => {
-  const paths = [];
-  const request = async path => {
-    paths.push(path);
-    if (path.startsWith('/api/v1/')) throw Object.assign(new Error('missing'), {status: 404});
-    return {legacy: true};
+test('keeps a short-lived non-entitling Pro navigation intent only on the same browser', () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key)
   };
-  assert.deepEqual(await requestV1WithFallback(request, '/api/v1/auth/sessions', '/api/auth/login', {}), {legacy: true});
-  assert.deepEqual(paths, ['/api/v1/auth/sessions', '/api/auth/login']);
+  assert.equal(rememberPostVerificationIntent(storage, 'pro', 1_000), true);
+  assert.equal(consumePostVerificationDestination(storage, 2_000),
+    '/dashboard/settings?tab=billing&plan=pro');
+  assert.equal(consumePostVerificationDestination(storage, 2_000), '/dashboard/');
+  rememberPostVerificationIntent(storage, 'pro', 1_000);
+  assert.equal(consumePostVerificationDestination(storage, 3_700_001), '/dashboard/');
+  rememberPostVerificationIntent(storage, 'pro', 1_000);
+  assert.equal(rememberPostVerificationIntent(storage, 'starter', 1_000), false);
+  assert.equal(consumePostVerificationDestination(storage, 2_000), '/dashboard/');
+});
 
-  await assert.rejects(
-    requestV1WithFallback(async () => {throw Object.assign(new Error('bad credentials'), {status: 401})}, '/v1', '/legacy', {}),
-    /bad credentials/
-  );
+test('requires the complete Identity v1 response before changing authentication state', () => {
+  const active = {id: 7, publicId: 'account-public-id', handle: 'alex_creates',
+    displayName: 'Alex Creates', status: 'active', emailVerified: true};
+  const pending = {...active, status: 'pending_verification', emailVerified: false,
+    verificationRequired: true};
+  assert.equal(requireActiveAuthAccount(active), active);
+  assert.equal(requirePendingRegistration(pending), pending);
+  assert.throws(() => requireActiveAuthAccount('<html>fallback</html>'),
+    failure => failure.code === 'INVALID_AUTH_RESPONSE');
+  assert.throws(() => requireActiveAuthAccount({...active, emailVerified: false}),
+    failure => failure.code === 'INVALID_AUTH_RESPONSE');
+  assert.throws(() => requirePendingRegistration({...pending, verificationRequired: false}),
+    failure => failure.code === 'INVALID_AUTH_RESPONSE');
 });
 
 test('recognizes unverified login failures and normalizes public session ids', () => {

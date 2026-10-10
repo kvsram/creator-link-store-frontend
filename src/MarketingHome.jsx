@@ -86,7 +86,7 @@ export function MarketingHome() {
     <section className="marketing-section steps-section" id="how-it-works">
       <div className="marketing-section-head"><span>FROM IDEA TO LIVE STORE</span><h2>Three clear steps.</h2></div>
       <div className="marketing-steps">
-        <article><b>01</b><h3>Create your account</h3><p>Choose a plan, add your contact details, and claim a unique public store address.</p></article>
+        <article><b>01</b><h3>Create your account</h3><p>Choose a plan and add the essentials. We create your store link automatically.</p></article>
         <article><b>02</b><h3>Build and preview</h3><p>Add each offer with its own fields, personalize the page, and see the mobile experience before publishing.</p></article>
         <article><b>03</b><h3>Share, learn, improve</h3><p>Put the store link in your Instagram bio, pin current deals, and use real activity to improve the next offer.</p></article>
       </div>
