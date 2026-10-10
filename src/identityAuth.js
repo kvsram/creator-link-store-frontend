@@ -82,7 +82,9 @@ export function validateRecoveryEmail(email) {
 }
 
 export function validateNewPassword(password, confirmation) {
-  if (String(password ?? '').length < 15) return 'Use a password with at least 15 characters.';
+  const value = String(password ?? '');
+  const length = Array.from(value).length;
+  if (!value.trim() || length < 12 || length > 128) return 'Use a password with 12–128 characters.';
   if (password !== confirmation) return 'The passwords do not match.';
   return '';
 }

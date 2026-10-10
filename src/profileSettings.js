@@ -18,7 +18,7 @@ export function validateProfileForm(form) {
   if (!displayName) return 'Enter the creator or business name visitors should see.';
   if (displayName.length > 80) return 'Display name must be 80 characters or fewer.';
   if (!HANDLE_PATTERN.test(handle)) {
-    return 'Use 3–40 lowercase letters, numbers, or underscores for your public store address.';
+    return 'Use 3–40 lowercase letters, numbers, or underscores for your store link.';
   }
   if (bio.length > 280) return 'Bio must be 280 characters or fewer.';
   if (phone && !/^[+()0-9 .-]{7,32}$/.test(phone)) {
@@ -41,7 +41,7 @@ export function savedProfile(response, fallback = {}) {
 }
 
 export function profileSaveFailure(status, serverMessage = '') {
-  if (status === 409) return 'That public store address is already in use. Choose another one.';
+  if (status === 409) return 'That store link is already in use. Choose another one.';
   if (status === 429) return 'Too many profile changes. Wait a moment and try again.';
   if (status === 401) return 'Your session expired. Sign in again before saving.';
   if (status === 400 && serverMessage) return serverMessage;

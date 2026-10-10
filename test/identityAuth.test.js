@@ -42,7 +42,11 @@ test('validates recovery and reset payloads before API calls', () => {
   assert.equal(validateRecoveryEmail('alex@example.com'), '');
   assert.match(validateRecoveryEmail('not-an-email'), /valid email/i);
   assert.deepEqual(recoveryEmailPayload(' ALEX@EXAMPLE.COM '), {email: 'alex@example.com'});
-  assert.match(validateNewPassword('fourteen-chars', 'fourteen-chars'), /at least 15/i);
+  assert.match(validateNewPassword('eleven-char', 'eleven-char'), /12–128/i);
+  assert.match(validateNewPassword('😀'.repeat(11), '😀'.repeat(11)), /12–128/i);
+  assert.equal(validateNewPassword('😀'.repeat(12), '😀'.repeat(12)), '');
+  assert.match(validateNewPassword('a'.repeat(129), 'a'.repeat(129)), /12–128/i);
+  assert.match(validateNewPassword(' '.repeat(12), ' '.repeat(12)), /12–128/i);
   assert.match(validateNewPassword('a-long-password-value', 'different-value-here'), /do not match/i);
   assert.equal(validateNewPassword('a-long-password-value', 'a-long-password-value'), '');
   assert.deepEqual(resetPasswordPayload(' token ', 'a-long-password-value'), {token: 'token', newPassword: 'a-long-password-value'});

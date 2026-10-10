@@ -13,8 +13,36 @@ export function loginNoticeFromSearch(search) {
   return '';
 }
 
-export function handleAvailabilityRequest(form) {
-  return {username: form?.handle || ''};
+function secureStoreLinkNonce() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+  throw new Error('Secure random values are unavailable in this browser.');
+}
+
+export function generatedStoreHandle(displayName, randomValue) {
+  let base = String(displayName ?? '').normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
+  if (base.length < 3) base = 'creator';
+  const suffix = String(randomValue ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (suffix.length < 12) throw new Error('A secure store-link suffix is required.');
+  return `${base.slice(0, 27)}_${suffix.slice(0, 12)}`;
+}
+
+export function signupRegistrationPayload(form, randomValue = secureStoreLinkNonce()) {
+  return {
+    handle: generatedStoreHandle(form?.displayName, randomValue),
+    displayName: String(form?.displayName ?? ''),
+    email: String(form?.email ?? ''),
+    password: String(form?.password ?? '')
+  };
 }
 
 export function authFailureMessage(operation, status, code = '') {
@@ -22,8 +50,7 @@ export function authFailureMessage(operation, status, code = '') {
   if (String(code).toUpperCase() === 'EMAIL_NOT_VERIFIED') {
     return 'Verify your email before signing in. You can request another verification email below.';
   }
-  if (operation === 'availability') return 'We could not check that store address right now. Try again.';
-  if (operation === 'registration') return 'We could not create that account. The store address or email may already be in use. Sign in or try different details.';
+  if (operation === 'registration') return 'We could not create that account. The email may already be registered. Sign in or try another email.';
   if (operation === 'verification') return status === 400 || status === 410
     ? 'This verification link is invalid or expired. Request a new email.'
     : 'We could not verify this email right now. Try again.';
@@ -36,17 +63,16 @@ export function authFailureMessage(operation, status, code = '') {
 }
 
 export function validateSignupDetails(form) {
-  if (!/^[a-zA-Z0-9_]{3,40}$/.test(form?.handle || '')) {
-    return 'Use 3–40 letters, numbers, or underscores for your store address.';
-  }
   if (!(form?.displayName || '').trim()) {
     return 'Enter the creator or business name visitors should see.';
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form?.email || '')) {
     return 'Enter a valid email address.';
   }
-  if ((form?.password || '').length < 15) {
-    return 'Use a password with at least 15 characters.';
+  const password = String(form?.password || '');
+  const passwordLength = Array.from(password).length;
+  if (!password.trim() || passwordLength < 12 || passwordLength > 128) {
+    return 'Use a password with 12–128 characters.';
   }
   return '';
 }
