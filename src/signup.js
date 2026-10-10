@@ -13,44 +13,25 @@ export function loginNoticeFromSearch(search) {
   return '';
 }
 
-function secureStoreLinkNonce() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  if (globalThis.crypto?.getRandomValues) {
-    const bytes = new Uint8Array(8);
-    globalThis.crypto.getRandomValues(bytes);
-    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-  }
-  throw new Error('Secure random values are unavailable in this browser.');
-}
-
-export function generatedStoreHandle(displayName, randomValue) {
-  let base = String(displayName ?? '').normalize('NFKD')
-    .replace(/\p{M}+/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .replace(/_+/g, '_');
-  if (base.length < 3) base = 'creator';
-  const suffix = String(randomValue ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (suffix.length < 12) throw new Error('A secure store-link suffix is required.');
-  return `${base.slice(0, 27)}_${suffix.slice(0, 12)}`;
-}
-
-export function signupRegistrationPayload(form, randomValue = secureStoreLinkNonce()) {
+export function signupRegistrationPayload(form) {
   return {
-    handle: generatedStoreHandle(form?.displayName, randomValue),
-    displayName: String(form?.displayName ?? ''),
-    email: String(form?.email ?? ''),
+    displayName: String(form?.displayName ?? '').trim(),
+    email: String(form?.email ?? '').trim().toLowerCase(),
     password: String(form?.password ?? '')
   };
 }
 
 export function authFailureMessage(operation, status, code = '') {
+  const normalizedCode = String(code).toUpperCase();
   if (status === 429) return 'Too many attempts. Wait a moment and try again.';
-  if (String(code).toUpperCase() === 'EMAIL_NOT_VERIFIED') {
+  if (normalizedCode === 'EMAIL_NOT_VERIFIED') {
     return 'Verify your email before signing in. You can request another verification email below.';
   }
-  if (operation === 'registration') return 'We could not create that account. The email may already be registered. Sign in or try another email.';
+  if (!status || status >= 500 || ['NETWORK_ERROR', 'REQUEST_TIMEOUT', 'INVALID_API_RESPONSE',
+    'INVALID_AUTH_RESPONSE', 'CSRF_BOOTSTRAP_INVALID'].includes(normalizedCode)) {
+    return 'The account service is unavailable right now. Check your connection and try again.';
+  }
+  if (operation === 'registration') return 'We could not complete signup. Check the details, sign in if you already have an account, or try again later.';
   if (operation === 'verification') return status === 400 || status === 410
     ? 'This verification link is invalid or expired. Request a new email.'
     : 'We could not verify this email right now. Try again.';
@@ -60,6 +41,10 @@ export function authFailureMessage(operation, status, code = '') {
     : 'We could not change the password right now. Try again.';
   if (operation === 'logout') return 'We could not sign you out. Check your connection and try again.';
   return 'Sign-in failed. Check your details and try again.';
+}
+
+export function isInsecureHttpLocation(locationLike = {}) {
+  return String(locationLike.protocol ?? '').toLowerCase() === 'http:';
 }
 
 export function validateSignupDetails(form) {

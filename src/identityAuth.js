@@ -1,4 +1,6 @@
 const TOKEN_KEYS = ['token', 'verification_token', 'reset_token'];
+const POST_VERIFICATION_INTENT_KEY = 'creatorStore.postVerificationIntent.v1';
+const POST_VERIFICATION_INTENT_TTL_MS = 60 * 60 * 1000;
 
 export function verificationRequired(response) {
   const status = String(response?.status ?? response?.accountStatus ?? response?.account_status ?? '')
@@ -39,8 +41,8 @@ export function resendCooldownSeconds(response, fallback = 30) {
   return Math.max(1, Math.min(300, Math.ceil(seconds)));
 }
 
-export function tokenFromSearch(search) {
-  const params = new URLSearchParams(search || '');
+function tokenFromParameters(raw) {
+  const params = new URLSearchParams(String(raw || '').replace(/^#\??/, ''));
   for (const key of TOKEN_KEYS) {
     const token = params.get(key);
     if (token?.trim()) return token.trim();
@@ -48,26 +50,99 @@ export function tokenFromSearch(search) {
   return '';
 }
 
+export function tokenFromSearch(search, hash = '') {
+  return tokenFromParameters(hash) || tokenFromParameters(search);
+}
+
+function cleanedAuthParameters(raw, prefix) {
+  const source = String(raw || '');
+  if (!source) return '';
+  const normalized = source.replace(/^#\??/, '');
+  if (!normalized.includes('=')) return source;
+  const params = new URLSearchParams(normalized);
+  TOKEN_KEYS.forEach(key => params.delete(key));
+  const value = params.toString();
+  return value ? `${prefix}${value}` : '';
+}
+
 export function locationWithoutAuthTokens(locationLike = {}) {
   const params = new URLSearchParams(locationLike.search || '');
   TOKEN_KEYS.forEach(key => params.delete(key));
   const search = params.toString();
-  return `${locationLike.pathname || '/'}${search ? `?${search}` : ''}${locationLike.hash || ''}`;
+  const hash = cleanedAuthParameters(locationLike.hash, '#');
+  return `${locationLike.pathname || '/'}${search ? `?${search}` : ''}${hash}`;
 }
 
 export function scrubAuthTokenFromHistory(locationLike, historyLike) {
-  if (!tokenFromSearch(locationLike?.search)) return false;
+  if (!tokenFromSearch(locationLike?.search, locationLike?.hash)) return false;
   historyLike?.replaceState?.(historyLike.state ?? null, '', locationWithoutAuthTokens(locationLike));
   return true;
 }
 
-export async function requestV1WithFallback(request, v1Path, legacyPath, options) {
+export function rememberPostVerificationIntent(storage, plan, now = Date.now()) {
   try {
-    return await request(v1Path, options);
-  } catch (failure) {
-    if (failure?.status !== 404 && failure?.status !== 501) throw failure;
-    return request(legacyPath, options);
+    if (plan !== 'pro') {
+      storage?.removeItem?.(POST_VERIFICATION_INTENT_KEY);
+      return false;
+    }
+    storage?.setItem?.(POST_VERIFICATION_INTENT_KEY, JSON.stringify({
+      intent: 'view_pro_billing', expiresAt: now + POST_VERIFICATION_INTENT_TTL_MS
+    }));
+    return true;
+  } catch {
+    return false;
   }
+}
+
+export function consumePostVerificationDestination(storage, now = Date.now()) {
+  let value = null;
+  try {
+    value = storage?.getItem?.(POST_VERIFICATION_INTENT_KEY);
+    storage?.removeItem?.(POST_VERIFICATION_INTENT_KEY);
+  } catch {
+    return '/dashboard/';
+  }
+  if (!value) return '/dashboard/';
+  try {
+    const parsed = JSON.parse(value);
+    return parsed?.intent === 'view_pro_billing' && Number(parsed?.expiresAt) > now
+      ? '/dashboard/settings?tab=billing&plan=pro' : '/dashboard/';
+  } catch {
+    return '/dashboard/';
+  }
+}
+
+function accountProjection(response, expectedStatus) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return false;
+  const status = String(response.status ?? '').trim().toLowerCase();
+  return response.id != null
+    && String(response.publicId ?? '').trim().length > 0
+    && String(response.handle ?? '').trim().length >= 3
+    && String(response.displayName ?? '').trim().length > 0
+    && typeof response.emailVerified === 'boolean'
+    && status === expectedStatus;
+}
+
+function invalidAuthResponse() {
+  return Object.assign(new Error('The account service returned an invalid response.'), {
+    code: 'INVALID_AUTH_RESPONSE', status: 0
+  });
+}
+
+export function requirePendingRegistration(response) {
+  const explicitlyRequiresVerification = response?.verificationRequired === true
+    || response?.verification_required === true;
+  if (!accountProjection(response, 'pending_verification') || !explicitlyRequiresVerification) {
+    throw invalidAuthResponse();
+  }
+  return response;
+}
+
+export function requireActiveAuthAccount(response) {
+  if (!accountProjection(response, 'active') || response.emailVerified !== true) {
+    throw invalidAuthResponse();
+  }
+  return response;
 }
 
 export function recoveryEmailPayload(email) {

@@ -1,18 +1,22 @@
 import React, {useEffect, useLayoutEffect, useState} from 'react';
 import {
   authFailureMessage,
+  isInsecureHttpLocation,
   loginNoticeFromSearch,
   signupRegistrationPayload,
   signupPlanFromSearch,
   validateSignupDetails
 } from './signup.js';
 import {
+  consumePostVerificationDestination,
   failureCode,
   needsEmailVerification,
   pendingVerificationDetails,
   recoveryEmailPayload,
+  rememberPostVerificationIntent,
+  requireActiveAuthAccount,
+  requirePendingRegistration,
   resendCooldownSeconds,
-  requestV1WithFallback,
   resetPasswordPayload,
   scrubAuthTokenFromHistory,
   tokenFromSearch,
@@ -42,10 +46,15 @@ function SignupSteps({step}) {
 }
 
 function TestEnvironmentWarning() {
+  if (!isInsecureHttpLocation(globalThis.location)) return null;
   return <div className="auth-test-warning" role="note" aria-label="HTTP test environment warning">
     <b>HTTP TEST ENVIRONMENT</b>
     <span>Use synthetic names, email addresses, and passwords only. Do not reuse personal or production credentials until TLS is enabled.</span>
   </div>;
+}
+
+function intentStorage() {
+  try { return globalThis.localStorage } catch { return null }
 }
 
 function PendingVerification({request, details, compact = false}) {
@@ -114,15 +123,17 @@ export function Signup({request}) {
     setMessage(''); setWorking(true);
     try {
       const options = {method: 'POST', body: JSON.stringify(signupRegistrationPayload(form))};
-      const response = await requestV1WithFallback(
-        request, '/api/v1/auth/registrations', '/api/auth/register', options
-      );
+      const response = await request('/api/v1/auth/registrations', options);
       if (verificationRequired(response)) {
+        requirePendingRegistration(response);
+        rememberPostVerificationIntent(intentStorage(), plan);
         setPending(pendingVerificationDetails(response, form.email));
         return;
       }
+      requireActiveAuthAccount(response);
+      rememberPostVerificationIntent(intentStorage(), 'starter');
       location.assign(plan === 'pro' ? '/dashboard/settings?tab=billing&plan=pro' : '/dashboard/');
-    } catch (error) {setMessage(authFailureMessage('registration', error.status))} finally {setWorking(false)}
+    } catch (error) {setMessage(authFailureMessage('registration', error.status, failureCode(error)))} finally {setWorking(false)}
   };
 
   if (pending) return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Already verified? <b>Sign in</b></a>}/><div className="login-wrap"><section className="auth-card"><TestEnvironmentWarning/><PendingVerification request={request} details={pending}/></section></div></main>;
@@ -153,7 +164,7 @@ export function Login({request, onSuccess}) {
     event.preventDefault(); setError(''); setUnverified(null); setWorking(true);
     try {
       const options = {method: 'POST', body: JSON.stringify(form)};
-      onSuccess(await requestV1WithFallback(request, '/api/v1/auth/sessions', '/api/auth/login', options));
+      onSuccess(requireActiveAuthAccount(await request('/api/v1/auth/sessions', options)));
     } catch (failure) {
       if (needsEmailVerification(failure)) {
         setUnverified(pendingVerificationDetails(failure.payload, form.handleOrEmail));
@@ -164,19 +175,26 @@ export function Login({request, onSuccess}) {
 }
 
 export function VerifyEmail({request}) {
-  const [token] = useState(() => tokenFromSearch(location.search));
+  const [token] = useState(() => tokenFromSearch(location.search, location.hash));
   const [state, setState] = useState(token ? 'working' : 'missing');
   const [message, setMessage] = useState('');
+  const [destination, setDestination] = useState('/dashboard/');
   useLayoutEffect(() => {if (token) scrubAuthTokenFromHistory(location, history)}, [token]);
   useEffect(() => {
     if (!token) return;
     let active = true;
     request('/api/v1/auth/email-verifications', {method: 'POST', body: JSON.stringify({token})})
-      .then(() => {if (active) setState('success')})
-      .catch(failure => {if (active) {setState('error'); setMessage(authFailureMessage('verification', failure.status))}});
+      .then(response => {
+        requireActiveAuthAccount(response);
+        if (active) {
+          setDestination(consumePostVerificationDestination(intentStorage()));
+          setState('success');
+        }
+      })
+      .catch(failure => {if (active) {setState('error'); setMessage(authFailureMessage('verification', failure.status, failureCode(failure)))}});
     return () => {active = false};
   }, [request, token]);
-  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">{state === 'success' ? '✓' : state === 'working' ? '…' : '!'}</span>{state === 'working' && <><h1>Verifying your email</h1><p>Please keep this page open for a moment.</p></>}{state === 'success' && <><h1>Email verified</h1><p>Your creator account is active and this browser is signed in.</p><a className="marketing-button full" href="/dashboard/">Open your dashboard</a></>}{state === 'missing' && <><h1>Verification link required</h1><p>Open the complete link from your verification email. The token is missing from this address.</p><a className="marketing-button full" href="/login">Return to sign in</a></>}{state === 'error' && <><h1>We could not verify this link</h1><p className="auth-error" role="alert">{message}</p><a className="marketing-button full" href="/login">Return to sign in</a></>}</section></div></main>;
+  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">{state === 'success' ? '✓' : state === 'working' ? '…' : '!'}</span>{state === 'working' && <><h1>Verifying your email</h1><p>Please keep this page open for a moment.</p></>}{state === 'success' && <><h1>Email verified</h1><p>Your creator account is active and this browser is signed in.</p>{destination.includes('plan=pro')&&<p>Your Creator Pro interest is saved only as a billing-page reminder. Your account remains on Starter and no charge or premium entitlement was created.</p>}<a className="marketing-button full" href={destination}>{destination.includes('plan=pro')?'Review Creator Pro':'Open your dashboard'}</a></>}{state === 'missing' && <><h1>Verification link required</h1><p>Open the complete link from your verification email. The token is missing from this address.</p><a className="marketing-button full" href="/login">Return to sign in</a></>}{state === 'error' && <><h1>We could not verify this link</h1><p className="auth-error" role="alert">{message}</p><a className="marketing-button full" href="/login">Return to sign in</a></>}</section></div></main>;
 }
 
 export function ForgotPassword({request}) {
@@ -197,7 +215,7 @@ export function ForgotPassword({request}) {
 }
 
 export function ResetPassword({request}) {
-  const [token] = useState(() => tokenFromSearch(location.search));
+  const [token] = useState(() => tokenFromSearch(location.search, location.hash));
   const [form, setForm] = useState({password: '', confirmation: ''});
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -212,7 +230,7 @@ export function ResetPassword({request}) {
     try {
       await request('/api/v1/auth/password-resets', {method: 'POST', body: JSON.stringify(resetPasswordPayload(token, form.password))});
       setSaved(true);
-    } catch (failure) {setError(authFailureMessage('reset', failure.status))} finally {setWorking(false)}
+    } catch (failure) {setError(authFailureMessage('reset', failure.status, failureCode(failure)))} finally {setWorking(false)}
   };
-  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">⌁</span><span className="marketing-kicker">CHOOSE A NEW PASSWORD</span><h1>{saved ? 'Password changed' : 'Secure your account'}</h1>{saved ? <><p>Your existing sessions were invalidated. Use the new password the next time you sign in.</p><a className="marketing-button full" href="/login?reset=1">Continue to sign in</a></> : <form onSubmit={submit} noValidate><p>Use at least 12 characters and do not reuse a password from another service.</p><div className="auth-fields"><label>New password<input autoComplete="new-password" type="password" minLength="12" required value={form.password} onChange={event => setForm({...form, password: event.target.value})}/></label><label>Confirm new password<input autoComplete="new-password" type="password" minLength="12" required value={form.confirmation} onChange={event => setForm({...form, confirmation: event.target.value})}/></label></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="marketing-button full" disabled={working || !token}>{working ? 'Changing password…' : 'Change password'}</button></form>}</section></div></main>;
+  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">⌁</span><span className="marketing-kicker">CHOOSE A NEW PASSWORD</span><h1>{saved ? 'Password changed' : token ? 'Secure your account' : 'Reset link required'}</h1>{saved ? <><p>Your existing sessions were invalidated. Use the new password the next time you sign in.</p><a className="marketing-button full" href="/login?reset=1">Continue to sign in</a></> : !token ? <><p className="auth-error" role="alert">Open the complete password-reset link from your email. The one-time token is missing from this address.</p><a className="marketing-button full" href="/forgot-password">Request a new reset link</a></> : <form onSubmit={submit} noValidate><p>Use at least 12 characters and do not reuse a password from another service.</p><div className="auth-fields"><label>New password<input autoComplete="new-password" type="password" minLength="12" required value={form.password} onChange={event => setForm({...form, password: event.target.value})}/></label><label>Confirm new password<input autoComplete="new-password" type="password" minLength="12" required value={form.confirmation} onChange={event => setForm({...form, confirmation: event.target.value})}/></label></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="marketing-button full" disabled={working}>{working ? 'Changing password…' : 'Change password'}</button></form>}</section></div></main>;
 }

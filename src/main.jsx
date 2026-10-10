@@ -12,7 +12,8 @@ import {leadSubmissionIdentity} from './leadSubmission.js';
 import {newIdempotencyKey,stableRequestIdentity} from './requestId.js';
 import {availableMeetingSlots} from './checkoutAvailability.js';
 import {profileForm,profileSaveFailure,profileSavePayload,savedProfile,validateProfileForm} from './profileSettings.js';
-import {normalizeSessions,sessionTimestamp} from './identityAuth.js';
+import {normalizeSessions,requireActiveAuthAccount,sessionTimestamp} from './identityAuth.js';
+import {createApiClient} from './apiClient.js';
 import {
   PRODUCT_TYPE_DEFINITIONS,
   defaultProductConfiguration,
@@ -25,6 +26,8 @@ import {
 } from './productConfig.js';
 
 const API=import.meta.env.VITE_API_ORIGIN||'';
+const apiClient=createApiClient({baseUrl:API});
+const request=apiClient.request;
 const nav=[
   ['home','⌂','Home'],['store','▣','My Store'],['success','☆','Success'],['income','$','Income'],
   ['analytics','↗','Analytics'],['customers','♙','Customers'],['community','◎','Community'],
@@ -37,17 +40,11 @@ const THEME_PRESETS={
 const designFromStore=store=>({title:store.title||'',tagline:store.tagline||'',theme:store.theme||'violet',accentColor:store.accent_color||'#6842d7',backgroundStyle:store.background_style||'soft-gradient',buttonStyle:store.button_style||'rounded',fontStyle:store.font_style||'modern',showProducts:store.show_products!==false,showLinks:store.show_links!==false});
 const currentRoute=()=>resolveRoute(location.pathname);
 
-async function request(path,options){
-  const response=await fetch(`${API}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(options?.headers||{})}});
-  if(!response.ok){const payload=await response.json().catch(()=>({}));const error=new Error(payload.error||payload.detail||payload.message||`Request failed: ${response.status}`);error.status=response.status;error.code=payload.code;error.payload=payload;throw error}
-  if(response.status===204)return null;const body=await response.text();return body.trim()?JSON.parse(body):null;
-}
-
 async function uploadProductFile(productId,file,kind){
   const body=new FormData();body.append('file',file);
-  const response=await fetch(`${API}/api/v1/products/${productId}/files?kind=${encodeURIComponent(kind)}`,{method:'POST',credentials:'include',body});
-  if(!response.ok){const payload=await response.json().catch(()=>({}));throw new Error(payload.error||`Upload failed: ${response.status}`)}
-  return response.json();
+  return request(`/api/v1/products/${productId}/files?kind=${encodeURIComponent(kind)}`,{
+    method:'POST',body,timeoutMs:120_000
+  });
 }
 
 const productConfiguration=product=>normalizeProductConfiguration(product?.type,product?.configuration??product?.configuration_json);
@@ -55,10 +52,12 @@ const productConfiguration=product=>normalizeProductConfiguration(product?.type,
 function App(){
   const [page,setPage]=useState(currentRoute());
   const [account,setAccount]=useState(null);
+  const [sessionError,setSessionError]=useState('');
   const [logoutError,setLogoutError]=useState('');
   const section=page.kind==='dashboard'?page.section:null;
   useEffect(()=>{const pop=()=>setPage(currentRoute());addEventListener('popstate',pop);return()=>removeEventListener('popstate',pop)},[]);
-  useEffect(()=>{if(section)request('/api/auth/me').then(setAccount).catch(()=>setAccount(false))},[section]);
+  const loadSession=()=>{setAccount(null);setSessionError('');request('/api/v1/auth/me').then(response=>setAccount(requireActiveAuthAccount(response))).catch(failure=>{if(failure.status===401)setAccount(false);else setSessionError(failure.code==='REQUEST_TIMEOUT'?'The session check timed out.':'We could not reach the account service.')})};
+  useEffect(()=>{if(section)loadSession()},[section]);
   if(page.kind==='marketing')return <MarketingHome/>;
   if(page.kind==='signup')return <Signup request={request}/>;
   if(page.kind==='login')return <Login request={request} onSuccess={()=>location.assign('/dashboard/')}/>;
@@ -67,10 +66,11 @@ function App(){
   if(page.kind==='reset-password')return <ResetPassword request={request}/>;
   if(page.kind==='store')return <PublicStore handle={page.handle}/>;
   if(page.kind==='not-found')return <PublicNotFound/>;
+  if(account===null&&sessionError)return <State title="We could not check your session" body={sessionError} action={loadSession}/>;
   if(account===null)return <div className="public-loading">Checking your session…</div>;
   if(account===false)return <Login request={request} onSuccess={setAccount}/>;
   const go=id=>{history.pushState({},'',`/dashboard/${id==='home'?'':id}`);setPage(currentRoute())};
-  const logout=async()=>{setLogoutError('');try{try{await request('/api/v1/auth/sessions/current',{method:'DELETE'})}catch(failure){if(failure.status!==404&&failure.status!==501)throw failure;await request('/api/auth/logout',{method:'POST'})}location.assign('/login?signedOut=1')}catch{setLogoutError('We could not sign you out. Check your connection and try again.')}};
+  const logout=async()=>{setLogoutError('');try{await request('/api/v1/auth/sessions/current',{method:'DELETE'});apiClient.clearCsrfToken();location.assign('/login?signedOut=1')}catch{setLogoutError('We could not sign you out. Check your connection and try again.')}};
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" onClick={()=>go('home')}><span>CS</span><b>Creator Store</b></a>
