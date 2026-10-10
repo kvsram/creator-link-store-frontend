@@ -39,7 +39,7 @@ const currentRoute=()=>resolveRoute(location.pathname);
 async function request(path,options){
   const response=await fetch(`${API}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(options?.headers||{})}});
   if(!response.ok){const payload=await response.json().catch(()=>({}));const error=new Error(payload.error||payload.detail||payload.message||`Request failed: ${response.status}`);error.status=response.status;error.code=payload.code;error.payload=payload;throw error}
-  return response.status===204?null:response.json();
+  if(response.status===204)return null;const body=await response.text();return body.trim()?JSON.parse(body):null;
 }
 
 async function uploadProductFile(productId,file,kind){

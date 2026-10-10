@@ -11,6 +11,7 @@ import {
   needsEmailVerification,
   pendingVerificationDetails,
   recoveryEmailPayload,
+  resendCooldownSeconds,
   requestV1WithFallback,
   resetPasswordPayload,
   scrubAuthTokenFromHistory,
@@ -47,13 +48,48 @@ function TestEnvironmentWarning() {
   </div>;
 }
 
-function PendingVerification({details, compact = false}) {
+function PendingVerification({request, details, compact = false}) {
+  const [email, setEmail] = useState(details.email || '');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [working, setWorking] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = setTimeout(() => setCooldown(value => Math.max(0, value - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+  const resend = async event => {
+    event.preventDefault();
+    const invalid = validateRecoveryEmail(email);
+    setError(invalid); setMessage('');
+    if (invalid || working || cooldown > 0) return;
+    setWorking(true);
+    try {
+      const response = await request('/api/v1/auth/email-verifications/resend', {
+        method: 'POST', body: JSON.stringify(recoveryEmailPayload(email))
+      });
+      setMessage('If an eligible pending account matches that email, a fresh verification link is on its way.');
+      setCooldown(resendCooldownSeconds(response));
+    } catch (failure) {
+      if (failure.status === 429) setCooldown(resendCooldownSeconds(failure.payload));
+      setError(failure.status === 429
+        ? 'Too many requests. Wait for the timer, then try again.'
+        : 'We could not request another email right now. Try again.');
+    } finally {setWorking(false)}
+  };
   return <section className={`verification-state ${compact ? 'compact' : ''}`}>
     <span className="verification-icon" aria-hidden="true">✉</span>
     <span className="marketing-kicker">CHECK YOUR INBOX</span>
     <h1>Verify your email</h1>
     <p>We sent a one-time verification link to <b>{details.emailHint}</b>. Open it to activate your creator account.</p>
     {details.expiresAt && <small>The link expires {new Date(details.expiresAt).toLocaleString()}.</small>}
+    <form className="verification-resend" onSubmit={resend} noValidate>
+      <label>Need another link?<input type="email" autoComplete="email" required placeholder="Enter your full email" value={email} onChange={event => {setEmail(event.target.value);setError('');setMessage('')}}/><small>Enter the complete account email. We never reconstruct it from the masked address above.</small></label>
+      <button type="submit" className="marketing-button full" disabled={working || cooldown > 0}>{working ? 'Requesting…' : cooldown > 0 ? `Try again in ${cooldown}s` : 'Resend verification email'}</button>
+    </form>
+    {message && <p className="auth-success" role="status">{message}</p>}
+    {error && <p className="auth-error" role="alert">{error}</p>}
     <div className="verification-actions">
       <a className="marketing-button" href="/login">Back to sign in</a>
       <a className="marketing-button ghost" href="/signup">Start again</a>
@@ -102,7 +138,7 @@ export function Signup({request}) {
     } catch (error) {setMessage(authFailureMessage('registration', error.status))} finally {setWorking(false)}
   };
 
-  if (pending) return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Already verified? <b>Sign in</b></a>}/><div className="login-wrap"><section className="auth-card"><TestEnvironmentWarning/><PendingVerification details={pending}/></section></div></main>;
+  if (pending) return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Already verified? <b>Sign in</b></a>}/><div className="login-wrap"><section className="auth-card"><TestEnvironmentWarning/><PendingVerification request={request} details={pending}/></section></div></main>;
 
   return <main className="auth-page">
     <AuthHeader action={<a href="/login">Already have an account? <b>Sign in</b></a>}/>
@@ -138,7 +174,7 @@ export function Login({request, onSuccess}) {
       } else setError(authFailureMessage('login', failure.status, failureCode(failure)));
     } finally {setWorking(false)}
   };
-  return <main className="auth-page login-page"><AuthHeader action={<a href="/signup">New here? <b>Create a store</b></a>}/><div className="login-wrap"><section className="auth-card"><TestEnvironmentWarning/>{notice && <p className="auth-success" role="status">{notice}</p>}{unverified ? <PendingVerification details={unverified} compact/> : <><span className="marketing-kicker">WELCOME BACK</span><h1>Sign in to Creator Store</h1><p>Manage your storefront, products, promotions, and audience.</p><form onSubmit={submit}><div className="auth-fields"><label>Username or email<input autoComplete="username" required value={form.handleOrEmail} onChange={event => setForm({...form, handleOrEmail: event.target.value})}/></label><label>Password<input autoComplete="current-password" required type="password" value={form.password} onChange={event => setForm({...form, password: event.target.value})}/></label></div><div className="auth-inline-link"><a href="/forgot-password">Forgot password?</a></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="marketing-button full" disabled={working}>{working ? 'Signing in…' : 'Sign in'}</button></form></>}</section></div></main>;
+  return <main className="auth-page login-page"><AuthHeader action={<a href="/signup">New here? <b>Create a store</b></a>}/><div className="login-wrap"><section className="auth-card"><TestEnvironmentWarning/>{notice && <p className="auth-success" role="status">{notice}</p>}{unverified ? <PendingVerification request={request} details={unverified} compact/> : <><span className="marketing-kicker">WELCOME BACK</span><h1>Sign in to Creator Store</h1><p>Manage your storefront, products, promotions, and audience.</p><form onSubmit={submit}><div className="auth-fields"><label>Username or email<input autoComplete="username" required value={form.handleOrEmail} onChange={event => setForm({...form, handleOrEmail: event.target.value})}/></label><label>Password<input autoComplete="current-password" required type="password" value={form.password} onChange={event => setForm({...form, password: event.target.value})}/></label></div><div className="auth-inline-link"><a href="/forgot-password">Forgot password?</a></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="marketing-button full" disabled={working}>{working ? 'Signing in…' : 'Sign in'}</button></form></>}</section></div></main>;
 }
 
 export function VerifyEmail({request}) {
@@ -154,7 +190,7 @@ export function VerifyEmail({request}) {
       .catch(failure => {if (active) {setState('error'); setMessage(authFailureMessage('verification', failure.status))}});
     return () => {active = false};
   }, [request, token]);
-  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">{state === 'success' ? '✓' : state === 'working' ? '…' : '!'}</span>{state === 'working' && <><h1>Verifying your email</h1><p>Please keep this page open for a moment.</p></>}{state === 'success' && <><h1>Email verified</h1><p>Your creator account is active. Sign in to open your dashboard.</p><a className="marketing-button full" href="/login?verified=1">Continue to sign in</a></>}{state === 'missing' && <><h1>Verification link required</h1><p>Open the complete link from your verification email. The token is missing from this address.</p><a className="marketing-button full" href="/login">Return to sign in</a></>}{state === 'error' && <><h1>We could not verify this link</h1><p className="auth-error" role="alert">{message}</p><a className="marketing-button full" href="/login">Return to sign in</a></>}</section></div></main>;
+  return <main className="auth-page login-page"><AuthHeader action={<a href="/login">Return to <b>sign in</b></a>}/><div className="login-wrap"><section className="auth-card auth-result-card"><span className="verification-icon" aria-hidden="true">{state === 'success' ? '✓' : state === 'working' ? '…' : '!'}</span>{state === 'working' && <><h1>Verifying your email</h1><p>Please keep this page open for a moment.</p></>}{state === 'success' && <><h1>Email verified</h1><p>Your creator account is active and this browser is signed in.</p><a className="marketing-button full" href="/dashboard/">Open your dashboard</a></>}{state === 'missing' && <><h1>Verification link required</h1><p>Open the complete link from your verification email. The token is missing from this address.</p><a className="marketing-button full" href="/login">Return to sign in</a></>}{state === 'error' && <><h1>We could not verify this link</h1><p className="auth-error" role="alert">{message}</p><a className="marketing-button full" href="/login">Return to sign in</a></>}</section></div></main>;
 }
 
 export function ForgotPassword({request}) {

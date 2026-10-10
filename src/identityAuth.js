@@ -22,9 +22,21 @@ export function pendingVerificationDetails(response, fallbackEmail = '') {
   return {
     emailHint: String(response?.emailHint ?? response?.email_hint ?? '').trim()
       || maskedEmail(fallbackEmail),
-    identifier: String(fallbackEmail ?? '').trim().toLowerCase(),
+    email: verificationEmailPrefill(fallbackEmail),
     expiresAt: response?.expiresAt ?? response?.expires_at ?? null
   };
+}
+
+export function verificationEmailPrefill(value) {
+  const email = String(value ?? '').trim().toLowerCase();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : '';
+}
+
+export function resendCooldownSeconds(response, fallback = 30) {
+  const raw = response?.retryAfterSeconds ?? response?.retry_after_seconds ?? fallback;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds)) return fallback;
+  return Math.max(1, Math.min(300, Math.ceil(seconds)));
 }
 
 export function tokenFromSearch(search) {

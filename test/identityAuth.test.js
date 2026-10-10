@@ -7,12 +7,14 @@ import {
   normalizeSessions,
   pendingVerificationDetails,
   recoveryEmailPayload,
+  resendCooldownSeconds,
   requestV1WithFallback,
   resetPasswordPayload,
   scrubAuthTokenFromHistory,
   tokenFromSearch,
   validateNewPassword,
   validateRecoveryEmail,
+  verificationEmailPrefill,
   verificationRequired
 } from '../src/identityAuth.js';
 
@@ -25,8 +27,12 @@ test('recognizes flat v1 pending-verification registration responses', () => {
 test('keeps verification details useful without exposing an email token', () => {
   assert.equal(maskedEmail('alex@example.com'), 'al***@example.com');
   assert.deepEqual(pendingVerificationDetails({expiresAt: '2030-01-01T00:00:00Z'}, 'alex@example.com'), {
-    emailHint: 'al***@example.com', identifier: 'alex@example.com', expiresAt: '2030-01-01T00:00:00Z'
+    emailHint: 'al***@example.com', email: 'alex@example.com', expiresAt: '2030-01-01T00:00:00Z'
   });
+  assert.equal(verificationEmailPrefill(' ALEX@EXAMPLE.COM '), 'alex@example.com');
+  assert.equal(verificationEmailPrefill('alex_handle'), '');
+  assert.equal(resendCooldownSeconds({retryAfterSeconds: 45}), 45);
+  assert.equal(resendCooldownSeconds({retry_after_seconds: 900}), 300);
   assert.equal(tokenFromSearch('?token=one-time-value'), 'one-time-value');
   assert.equal(tokenFromSearch('?verification_token=compatibility-value'), 'compatibility-value');
   assert.equal(tokenFromSearch('?unrelated=value'), '');
